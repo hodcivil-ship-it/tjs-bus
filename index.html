@@ -2,23 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>TJS Engineering College · Bus Tracker</title>
-
-<!-- ---------- PWA: installable "app" behavior ---------- -->
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#1b4332">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="TJS Bus">
-<link rel="apple-touch-icon" href="icon-192.png">
-<link rel="icon" href="icon-192.png">
-
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 <style>
   :root{
     --forest-950:#0d2818;
@@ -295,6 +282,9 @@
   .driver-share-box p{margin:0 0 18px;font-size:12.5px;color:var(--ink-soft);}
   .tiny-note{font-size:11.5px;color:var(--ink-soft);text-align:center;margin-top:14px;line-height:1.5;}
 </style>
+<!-- Firebase compat scripts: classic <script> tags load reliably everywhere (no ES-module/CORS issues). -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 </head>
 <body>
 <div id="app">
@@ -327,32 +317,60 @@
     </div>
 
     <div class="login-body">
-      <h2>Student login</h2>
-      <p class="sub">Sign in to check your route and live bus location.</p>
+      <h2 id="student-form-title">Student login</h2>
+      <p class="sub" id="student-form-sub">Sign in with your registered college Gmail.</p>
+      <p class="error-msg" id="backend-status"></p>
+
+      <div id="student-register-fields" style="display:none;">
+        <div class="field">
+          <label for="stu-fullname">Full name</label>
+          <input id="stu-fullname" type="text" placeholder="e.g. Arun Kumar" />
+        </div>
+        <div class="field">
+          <label for="stu-dept">Department</label>
+          <input id="stu-dept" type="text" placeholder="e.g. CSE" />
+        </div>
+        <div class="field">
+          <label for="stu-year">Year</label>
+          <select id="stu-year">
+            <option value="">Select year</option>
+            <option value="1">1st Year</option>
+            <option value="2">2nd Year</option>
+            <option value="3">3rd Year</option>
+            <option value="4">4th Year</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="stu-mobile">Mobile number</label>
+          <input id="stu-mobile" type="tel" placeholder="e.g. 9876543210" />
+        </div>
+        <div class="field">
+          <label for="stu-roll">College register number</label>
+          <input id="stu-roll" type="text" placeholder="e.g. 21TJS0456" />
+        </div>
+      </div>
 
       <div class="field">
-        <label for="stu-name">Full name</label>
-        <input id="stu-name" type="text" placeholder="e.g. Arun Kumar" />
-      </div>
-      <div class="field">
-        <label for="stu-roll">Register number</label>
-        <input id="stu-roll" type="text" placeholder="e.g. 21TJS0456" />
+        <label for="stu-email">College Gmail</label>
+        <input id="stu-email" type="email" placeholder="e.g. arun.21cs@gmail.com" />
       </div>
       <p class="error-msg" id="stu-error"></p>
-      <button class="btn btn-primary" onclick="studentLogin()">Log in as student</button>
+      <button class="btn btn-primary" id="stu-submit-btn" onclick="studentLogin()">Log in as student</button>
+
+      <p style="text-align:center;margin:14px 0 0;font-size:12.5px;color:var(--ink-soft);">
+        <span id="student-toggle-text">New student?</span>
+        <span class="driver-toggle" style="display:inline;padding:0;" onclick="toggleStudentMode()" id="student-toggle-link">Register here</span>
+      </p>
 
       <div class="divider-row"><div class="line"></div><span>OR</span><div class="line"></div></div>
-
-      <button class="btn btn-outline" id="install-btn" style="display:none;margin-bottom:14px;" onclick="promptInstall()">📲 Install app on this phone</button>
-      <p class="tiny-note" id="ios-install-note" style="display:none;margin:-8px 0 14px;">On iPhone: tap the <strong>Share</strong> icon in Safari, then <strong>"Add to Home Screen"</strong> to install this as an app.</p>
 
       <div class="driver-toggle" onclick="toggleDriverPanel()" id="driver-toggle-label">Driver? Log in here</div>
 
       <div class="mini-panel" id="driver-panel" style="display:none;">
         <h3>Driver login</h3>
         <div class="field">
-          <label for="drv-name">Driver name</label>
-          <input id="drv-name" type="text" placeholder="e.g. Mr. Selvam" />
+          <label for="drv-id">Driver ID</label>
+          <input id="drv-id" type="text" placeholder="e.g. TJS0001" />
         </div>
         <div class="field">
           <label for="drv-route">Assigned route</label>
@@ -478,9 +496,26 @@ const ROUTES = [
   { id: "pazhaverkadu",  name: "Pazhaverkadu to TJS" }
 ];
 
+// Only these Driver IDs can log in, each tied to one specific route.
+// To add/remove a driver, just edit this list.
+const ALLOWED_DRIVERS = [
+  { id: "TJS0001", routeId: "ponneri" },
+  { id: "TJS0002", routeId: "minjur" },
+  { id: "TJS0003", routeId: "redhills" },
+  { id: "TJS0004", routeId: "gummidipoondi" },
+  { id: "TJS0005", routeId: "pazhaverkadu" },
+  { id: "TJS0006", routeId: "ponneri" }
+];
+
+let studentMode = "login"; // "login" | "register"
+
 let state = {
   role: null,        // 'student' | 'driver'
   studentName: "",
+  studentEmail: "",
+  studentDept: "",
+  studentYear: "",
+  studentMobile: "",
   studentRoll: "",
   driverName: "",
   selectedRoute: null,
@@ -488,93 +523,71 @@ let state = {
   watchId: null
 };
 
-// ---------- PWA install + service worker ----------
-let deferredInstallPrompt = null;
-
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js").catch(err => console.error("SW registration failed", err));
-  });
-}
-
-window.addEventListener("beforeinstallprompt", (e) => {
-  e.preventDefault();
-  deferredInstallPrompt = e;
-  const btn = document.getElementById("install-btn");
-  if (btn) btn.style.display = "block";
-});
-
-async function promptInstall() {
-  const btn = document.getElementById("install-btn");
-  if (!deferredInstallPrompt) return;
-  deferredInstallPrompt.prompt();
-  await deferredInstallPrompt.userChoice;
-  deferredInstallPrompt = null;
-  if (btn) btn.style.display = "none";
-}
-
-window.addEventListener("appinstalled", () => {
-  const btn = document.getElementById("install-btn");
-  if (btn) btn.style.display = "none";
-});
-
-// iOS Safari never fires beforeinstallprompt — show manual instructions instead,
-// unless the app is already running installed (standalone mode).
-(function showIosInstallHintIfNeeded() {
-  const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
-  const isStandalone = window.navigator.standalone === true ||
-    window.matchMedia("(display-mode: standalone)").matches;
-  if (isIos && !isStandalone) {
-    const note = document.getElementById("ios-install-note");
-    if (note) note.style.display = "block";
-  }
-})();
-
-// ======================================================================
-// FIREBASE SETUP — web app config is filled in below. ✅
-//
-// One thing still to do in the console before this works: turn on the
-// database. Firebase console → bus-location-62da8 → Build → Firestore
-// Database → Create database → production mode → pick a nearby region.
-// Then open the "Rules" tab there and paste in the rules from the
-// README section at the end of this reply.
-// ======================================================================
-const firebaseConfig = {
-  apiKey: "AIzaSyANTX301i365bStnMBm5mLc7VHRUrslDmM",
-  authDomain: "bus-location-62da8.firebaseapp.com",
-  projectId: "bus-location-62da8",
-  storageBucket: "bus-location-62da8.firebasestorage.app",
-  messagingSenderId: "322744891011",
-  appId: "1:322744891011:web:8dd28b6e12d8ee30d48db6",
-  measurementId: "G-3D5Y9G2F70"
-};
-
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
-const LOCATIONS_COLLECTION = "liveLocations"; // one document per route, doc id = route id
-
 let refreshTimer = null;
-let locationUnsub = null;      // live-location screen listener
-const routeDotUnsubs = {};     // per-route dot listeners on the route list screen
 
-// ---------- Firestore helpers ----------
-async function setRouteLocation(routeId, data) {
+// ---------- Firebase realtime backend ----------
+// 1) Create a Firebase project at https://console.firebase.google.com/
+// 2) Add a Web app and paste its config below.
+// 3) Enable Realtime Database and Authentication > Anonymous.
+const FIREBASE_CONFIG = {
+  apiKey: "PASTE_YOUR_API_KEY",
+  authDomain: "PASTE_YOUR_PROJECT.firebaseapp.com",
+  databaseURL: "https://PASTE_YOUR_PROJECT-default-rtdb.firebaseio.com",
+  projectId: "PASTE_YOUR_PROJECT_ID",
+  storageBucket: "PASTE_YOUR_PROJECT.firebasestorage.app",
+  messagingSenderId: "PASTE_YOUR_SENDER_ID",
+  appId: "PASTE_YOUR_APP_ID"
+};
+let db = null;
+let firebaseReady = false;
+let firebaseInitError = "";
+
+function initFirebase() {
   try {
-    await db.collection(LOCATIONS_COLLECTION).doc(routeId).set(data);
+    if (typeof firebase === "undefined") throw new Error("Firebase library failed to load. Check your internet connection and reload.");
+    if (FIREBASE_CONFIG.apiKey.startsWith("PASTE_")) {
+      firebaseInitError = "Firebase is not configured yet. Add your Firebase Web App config in index.html.";
+      return false;
+    }
+    firebase.initializeApp(FIREBASE_CONFIG);
+    db = firebase.database();
+    firebaseReady = true;
     return true;
   } catch (e) {
-    console.error("Firestore write failed", e);
+    firebaseInitError = e.message || "Firebase initialization failed.";
+    console.error(e);
     return false;
   }
 }
-async function getRouteLocationOnce(routeId) {
+
+function showBackendError(elId) {
+  const el = document.getElementById(elId);
+  if (el) el.textContent = firebaseInitError || "Realtime server is unavailable.";
+}
+
+async function storageSet(key, value) {
+  if (!firebaseReady) return null;
   try {
-    const snap = await db.collection(LOCATIONS_COLLECTION).doc(routeId).get();
-    return snap.exists ? snap.data() : null;
-  } catch (e) {
-    console.error("Firestore read failed", e);
-    return null;
-  }
+    const data = JSON.parse(value);
+    await db.ref(key.replace(/^route-location:/, "routes/")).set(data);
+    return { value };
+  } catch (e) { console.error("Firebase write failed", e); return null; }
+}
+
+async function storageGet(key) {
+  // Kept for compatibility with the existing UI. Realtime listeners below handle live updates.
+  return null;
+}
+
+function readOnce(path) {
+  if (!firebaseReady) return Promise.resolve(null);
+  return db.ref(path).once("value")
+    .then(snap => snap.val())
+    .catch(() => null);
+}
+
+function emailKey(email) {
+  return email.trim().toLowerCase().replace(/[.#$/\[\]]/g, "_");
 }
 
 // ---------- init ----------
@@ -588,6 +601,8 @@ function populateRouteDropdown() {
   });
 }
 populateRouteDropdown();
+initFirebase();
+if (!firebaseReady) showBackendError("backend-status");
 
 function toggleDriverPanel() {
   const panel = document.getElementById("driver-panel");
@@ -602,19 +617,85 @@ function goToScreen(id) {
 }
 
 // ---------- student flow ----------
-function studentLogin() {
-  const name = document.getElementById("stu-name").value.trim();
+function toggleStudentMode() {
+  studentMode = studentMode === "login" ? "register" : "login";
+  document.getElementById("stu-error").textContent = "";
+  const registerFields = document.getElementById("student-register-fields");
+  const title = document.getElementById("student-form-title");
+  const sub = document.getElementById("student-form-sub");
+  const btn = document.getElementById("stu-submit-btn");
+  const toggleText = document.getElementById("student-toggle-text");
+  const toggleLink = document.getElementById("student-toggle-link");
+  if (studentMode === "register") {
+    registerFields.style.display = "block";
+    title.textContent = "Student registration";
+    sub.textContent = "Register once with your details. After that, just your Gmail logs you in.";
+    btn.textContent = "Register";
+    btn.setAttribute("onclick", "studentRegister()");
+    toggleText.textContent = "Already registered?";
+    toggleLink.textContent = "Log in here";
+  } else {
+    registerFields.style.display = "none";
+    title.textContent = "Student login";
+    sub.textContent = "Sign in with your registered college Gmail.";
+    btn.textContent = "Log in as student";
+    btn.setAttribute("onclick", "studentLogin()");
+    toggleText.textContent = "New student?";
+    toggleLink.textContent = "Register here";
+  }
+}
+
+async function studentRegister() {
+  const name = document.getElementById("stu-fullname").value.trim();
+  const dept = document.getElementById("stu-dept").value.trim();
+  const year = document.getElementById("stu-year").value;
+  const mobile = document.getElementById("stu-mobile").value.trim();
   const roll = document.getElementById("stu-roll").value.trim();
+  const email = document.getElementById("stu-email").value.trim().toLowerCase();
   const err = document.getElementById("stu-error");
-  if (!name || !roll) {
-    err.textContent = "Please enter your name and register number.";
+  err.textContent = "";
+
+  if (!name || !dept || !year || !mobile || !roll || !email) {
+    err.textContent = "Please fill in all fields to register.";
     return;
   }
+  if (!/^[^\s@]+@gmail\.com$/i.test(email)) { err.textContent = "Please register with a valid Gmail address."; return; }
+  if (!/^\d{10}$/.test(mobile)) { err.textContent = "Please enter a valid 10-digit mobile number."; return; }
+  if (!firebaseReady) { err.textContent = firebaseInitError || "Registration server is unavailable."; return; }
+
+  const key = emailKey(email);
+  const existing = await readOnce(`students/${key}`);
+  if (existing) { err.textContent = "This Gmail is already registered. Please log in instead."; return; }
+
+  const record = { name, dept, year, mobile, roll, email, registeredAt: Date.now() };
+  await db.ref(`students/${key}`).set(record);
+  completeStudentLogin(record);
+}
+
+async function studentLogin() {
+  const email = document.getElementById("stu-email").value.trim().toLowerCase();
+  const err = document.getElementById("stu-error");
   err.textContent = "";
+  if (!email) { err.textContent = "Please enter your registered Gmail."; return; }
+  if (!firebaseReady) { err.textContent = firebaseInitError || "Login server is unavailable."; return; }
+
+  const key = emailKey(email);
+  const existing = await readOnce(`students/${key}`);
+  if (!existing) { err.textContent = "This Gmail isn't registered yet. Please register first."; return; }
+  completeStudentLogin(existing);
+}
+
+function completeStudentLogin(data) {
   state.role = "student";
-  state.studentName = name;
-  state.studentRoll = roll;
-  document.getElementById("student-welcome").textContent = `Welcome, ${name} (${roll})`;
+  state.studentName = data.name || "";
+  state.studentEmail = data.email || "";
+  state.studentDept = data.dept || "";
+  state.studentYear = data.year || "";
+  state.studentMobile = data.mobile || "";
+  state.studentRoll = data.roll || "";
+  document.getElementById("student-welcome").textContent = data.name
+    ? `Welcome, ${data.name}`
+    : `Welcome, ${data.email}`;
   renderRouteList();
   goToScreen("screen-routes");
 }
@@ -622,10 +703,6 @@ function studentLogin() {
 function renderRouteList() {
   const list = document.getElementById("route-list");
   list.innerHTML = "";
-
-  // stop any listeners from a previous visit to this screen
-  Object.values(routeDotUnsubs).forEach(unsub => unsub && unsub());
-
   ROUTES.forEach((r, i) => {
     const card = document.createElement("div");
     card.className = "route-card";
@@ -641,17 +718,16 @@ function renderRouteList() {
     `;
     list.appendChild(card);
   });
+  ROUTES.forEach(r => refreshRouteDot(r.id));
+}
 
-  // live-update each route's dot as drivers start/stop sharing
-  ROUTES.forEach(r => {
-    routeDotUnsubs[r.id] = db.collection(LOCATIONS_COLLECTION).doc(r.id)
-      .onSnapshot(snap => {
-        const dot = document.getElementById(`dot-${r.id}`);
-        if (!dot) return;
-        const data = snap.exists ? snap.data() : null;
-        const isFresh = data && (Date.now() - data.updatedAt < 2 * 60 * 1000);
-        dot.classList.toggle("live", !!isFresh);
-      }, err => console.error("route dot listener failed", err));
+async function refreshRouteDot(routeId) {
+  const dot = document.getElementById(`dot-${routeId}`);
+  if (!dot || !firebaseReady) return;
+  db.ref(`routes/${routeId}`).on("value", snapshot => {
+    const data = snapshot.val();
+    const isFresh = data && data.updatedAt && (Date.now() - data.updatedAt < 2 * 60 * 1000);
+    dot.classList.toggle("live", !!isFresh);
   });
 }
 
@@ -659,11 +735,14 @@ function selectRoute(route) {
   state.selectedRoute = route;
   document.getElementById("loc-route-name").textContent = route.name;
   goToScreen("screen-location");
-
-  if (locationUnsub) locationUnsub();
-  locationUnsub = db.collection(LOCATIONS_COLLECTION).doc(route.id)
-    .onSnapshot(snap => renderLocation(snap.exists ? snap.data() : null),
-      err => { console.error("location listener failed", err); renderLocation(null); });
+  refreshLocation();
+  if (refreshTimer) clearInterval(refreshTimer);
+  // Firebase onValue listener updates the screen instantly when the driver moves.
+  if (firebaseReady) {
+    db.ref(`routes/${route.id}`).on("value", snapshot => {
+      renderLocation(snapshot.val());
+    });
+  }
 }
 
 function renderLocation(data) {
@@ -673,14 +752,14 @@ function renderLocation(data) {
   const noDataBlock = document.getElementById("map-no-data");
   const gmapsLink = document.getElementById("gmaps-link");
 
-  const isFresh = data && (Date.now() - data.updatedAt < 2 * 60 * 1000);
+  const isFresh = data && data.updatedAt && (Date.now() - data.updatedAt < 2 * 60 * 1000);
   if (data && isFresh) {
     pill.classList.remove("offline");
     pillText.textContent = "Live";
     hasDataBlock.style.display = "block";
     noDataBlock.style.display = "none";
     document.getElementById("loc-driver-name").textContent = data.driverName || "Driver";
-    document.getElementById("loc-coords").textContent = `${data.lat.toFixed(5)}, ${data.lng.toFixed(5)}`;
+    document.getElementById("loc-coords").textContent = `${Number(data.lat).toFixed(5)}, ${Number(data.lng).toFixed(5)}`;
     document.getElementById("loc-updated").textContent = new Date(data.updatedAt).toLocaleTimeString();
     gmapsLink.style.display = "block";
     gmapsLink.href = `https://www.google.com/maps?q=${data.lat},${data.lng}`;
@@ -693,33 +772,40 @@ function renderLocation(data) {
   gmapsLink.style.display = "none";
 }
 
-// "Refresh now" forces a fresh read straight from the server (bypassing
-// the real-time listener's local cache), for when a phone's connection
-// has been flaky.
-async function refreshLocation() {
+function refreshLocation() {
   if (!state.selectedRoute) return;
-  try {
-    const snap = await db.collection(LOCATIONS_COLLECTION).doc(state.selectedRoute.id).get({ source: "server" });
-    renderLocation(snap.exists ? snap.data() : null);
-  } catch (e) {
-    console.error("manual refresh failed", e);
+  if (!firebaseReady) {
+    renderLocation(null);
+    return;
   }
+  db.ref(`routes/${state.selectedRoute.id}`).once("value").then(snapshot => {
+    renderLocation(snapshot.val());
+  });
 }
 
 // ---------- driver flow ----------
 function driverLogin() {
-  const name = document.getElementById("drv-name").value.trim();
+  const id = document.getElementById("drv-id").value.trim().toUpperCase();
   const routeId = document.getElementById("drv-route").value;
   const err = document.getElementById("drv-error");
-  if (!name || !routeId) {
-    err.textContent = "Please enter your name and pick your route.";
+  err.textContent = "";
+  if (!id || !routeId) {
+    err.textContent = "Please enter your driver ID and pick your route.";
     return;
   }
-  err.textContent = "";
+  const match = ALLOWED_DRIVERS.find(d => d.id === id);
+  if (!match) {
+    err.textContent = "Driver ID not recognized. Contact admin if this is a mistake.";
+    return;
+  }
+  if (match.routeId !== routeId) {
+    err.textContent = "This driver ID is assigned to a different route.";
+    return;
+  }
   state.role = "driver";
-  state.driverName = name;
+  state.driverName = id;
   state.selectedRoute = ROUTES.find(r => r.id === routeId);
-  document.getElementById("driver-welcome").textContent = `${name} · ${state.selectedRoute.name}`;
+  document.getElementById("driver-welcome").textContent = `${id} · ${state.selectedRoute.name}`;
   goToScreen("screen-driver");
 }
 
@@ -731,27 +817,33 @@ function toggleSharing() {
   }
 }
 
-// A single bad GPS reading shouldn't kill sharing outright — track
-// consecutive failures and only give up after several in a row. If
-// high-accuracy GPS keeps timing out (common indoors / weak signal),
-// fall back to network-based location instead of failing completely.
-let geoFailCount = 0;
-const MAX_GEO_FAILS = 4;
-
 function startSharing() {
   const errEl = document.getElementById("driver-geo-error");
   errEl.textContent = "";
+  if (!firebaseReady) {
+    errEl.textContent = firebaseInitError || "Firebase is not configured. Please set it up first.";
+    return;
+  }
   if (!navigator.geolocation) {
     errEl.textContent = "Location isn't available on this device/browser.";
     return;
   }
-  if (!window.isSecureContext) {
-    errEl.textContent = "Location requires a secure (https) connection. Ask your admin to host this over HTTPS.";
-    return;
-  }
-  geoFailCount = 0;
-  watchPositionWithFallback(true);
-
+  state.watchId = navigator.geolocation.watchPosition(
+    async (pos) => {
+      const payload = {
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        driverName: state.driverName,
+        updatedAt: Date.now()
+      };
+      await db.ref(`routes/${state.selectedRoute.id}`).set(payload);
+    },
+    (geoErr) => {
+      errEl.textContent = "Couldn't get your location. Please allow location access and try again.";
+      stopSharing();
+    },
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+  );
   state.sharing = true;
   document.getElementById("driver-dot").classList.add("sharing");
   document.getElementById("driver-status-title").textContent = "Sharing live";
@@ -760,63 +852,14 @@ function startSharing() {
   document.getElementById("driver-share-btn").className = "btn btn-danger";
 }
 
-function watchPositionWithFallback(highAccuracy) {
-  if (state.watchId !== null) {
-    navigator.geolocation.clearWatch(state.watchId);
-  }
-  const errEl = document.getElementById("driver-geo-error");
-  state.watchId = navigator.geolocation.watchPosition(
-    async (pos) => {
-      geoFailCount = 0;
-      errEl.textContent = "";
-      const payload = {
-        lat: pos.coords.latitude,
-        lng: pos.coords.longitude,
-        driverName: state.driverName,
-        updatedAt: Date.now()
-      };
-      await setRouteLocation(state.selectedRoute.id, payload);
-    },
-    (geoErr) => {
-      geoFailCount++;
-
-      if (geoErr.code === geoErr.PERMISSION_DENIED) {
-        errEl.textContent = "Location permission denied. Please allow location access in your browser/phone settings, then tap Start sharing again.";
-        stopSharing();
-        return;
-      }
-
-      // First couple of high-accuracy timeouts: quietly retry with
-      // regular (network-based) accuracy, which is far more reliable
-      // indoors or on a weak signal.
-      if (highAccuracy && geoFailCount <= 2) {
-        errEl.textContent = "GPS signal is weak — switching to standard accuracy…";
-        watchPositionWithFallback(false);
-        return;
-      }
-
-      if (geoFailCount >= MAX_GEO_FAILS) {
-        errEl.textContent = "Couldn't get your location after several tries. Check that location services are on, then try again.";
-        stopSharing();
-        return;
-      }
-
-      errEl.textContent = "Location signal lost, retrying…";
-      // watchPosition keeps running on its own for most error types,
-      // so no extra action needed here besides tracking the failure count.
-    },
-    highAccuracy
-      ? { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
-      : { enableHighAccuracy: false, maximumAge: 10000, timeout: 20000 }
-  );
-}
-
 function stopSharing() {
   if (state.watchId !== null) {
     navigator.geolocation.clearWatch(state.watchId);
     state.watchId = null;
   }
-  geoFailCount = 0;
+  if (firebaseReady && state.selectedRoute) {
+    db.ref(`routes/${state.selectedRoute.id}`).remove().catch(console.error);
+  }
   state.sharing = false;
   document.getElementById("driver-dot").classList.remove("sharing");
   document.getElementById("driver-status-title").textContent = "Not sharing";
@@ -831,15 +874,18 @@ function logout() {
     navigator.geolocation.clearWatch(state.watchId);
   }
   if (refreshTimer) clearInterval(refreshTimer);
-  if (locationUnsub) { locationUnsub(); locationUnsub = null; }
-  Object.values(routeDotUnsubs).forEach(unsub => unsub && unsub());
-  state = { role: null, studentName: "", studentRoll: "", driverName: "", selectedRoute: null, sharing: false, watchId: null };
-  document.getElementById("stu-name").value = "";
+  state = { role: null, studentName: "", studentEmail: "", studentDept: "", studentYear: "", studentMobile: "", studentRoll: "", driverName: "", selectedRoute: null, sharing: false, watchId: null };
+  document.getElementById("stu-fullname").value = "";
+  document.getElementById("stu-dept").value = "";
+  document.getElementById("stu-year").value = "";
+  document.getElementById("stu-mobile").value = "";
   document.getElementById("stu-roll").value = "";
-  document.getElementById("drv-name").value = "";
+  document.getElementById("stu-email").value = "";
+  document.getElementById("drv-id").value = "";
   document.getElementById("drv-route").value = "";
   document.getElementById("driver-panel").style.display = "none";
   document.getElementById("driver-toggle-label").textContent = "Driver? Log in here";
+  if (studentMode !== "login") toggleStudentMode();
   goToScreen("screen-login");
 }
 </script>
