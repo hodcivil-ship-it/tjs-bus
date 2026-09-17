@@ -4,6 +4,10 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>TJS Engineering College · Bus Tracker</title>
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#1b4332">
+<link rel="icon" href="./icon-192.png">
+<link rel="apple-touch-icon" href="./icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -530,13 +534,13 @@ let refreshTimer = null;
 // 2) Add a Web app and paste its config below.
 // 3) Enable Realtime Database and Authentication > Anonymous.
 const FIREBASE_CONFIG = {
-  apiKey: "PASTE_YOUR_API_KEY",
-  authDomain: "PASTE_YOUR_PROJECT.firebaseapp.com",
-  databaseURL: "https://PASTE_YOUR_PROJECT-default-rtdb.firebaseio.com",
-  projectId: "PASTE_YOUR_PROJECT_ID",
-  storageBucket: "PASTE_YOUR_PROJECT.firebasestorage.app",
-  messagingSenderId: "PASTE_YOUR_SENDER_ID",
-  appId: "PASTE_YOUR_APP_ID"
+  apiKey: "AIzaSyANTX301i365bStnMBm5mLc7VHRUrslDmM",
+  authDomain: "bus-location-62da8.firebaseapp.com",
+  databaseURL: "https://bus-location-62da8-default-rtdb.firebaseio.com",
+  projectId: "bus-location-62da8",
+  storageBucket: "bus-location-62da8.firebasestorage.app",
+  messagingSenderId: "322744891011",
+  appId: "1:322744891011:web:8dd28b6e12d8ee30d48db6"
 };
 let db = null;
 let firebaseReady = false;
@@ -545,8 +549,8 @@ let firebaseInitError = "";
 function initFirebase() {
   try {
     if (typeof firebase === "undefined") throw new Error("Firebase library failed to load. Check your internet connection and reload.");
-    if (FIREBASE_CONFIG.apiKey.startsWith("PASTE_")) {
-      firebaseInitError = "Firebase is not configured yet. Add your Firebase Web App config in index.html.";
+    if (FIREBASE_CONFIG.apiKey.startsWith("PASTE_") || FIREBASE_CONFIG.databaseURL.startsWith("PASTE_")) {
+      firebaseInitError = "Firebase is not configured yet. Add your Realtime Database URL in index.html.";
       return false;
     }
     firebase.initializeApp(FIREBASE_CONFIG);
@@ -888,6 +892,16 @@ function logout() {
   if (studentMode !== "login") toggleStudentMode();
   goToScreen("screen-login");
 }
+
+// ---------- PWA: register service worker (offline app shell) ----------
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch((err) => {
+      console.warn("Service worker registration failed:", err);
+    });
+  });
+}
+
 </script>
 </body>
 </html>
