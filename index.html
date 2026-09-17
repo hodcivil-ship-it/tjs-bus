@@ -285,10 +285,27 @@
   .driver-share-box h3{margin:0 0 6px;font-size:15.5px;color:var(--forest-950);}
   .driver-share-box p{margin:0 0 18px;font-size:12.5px;color:var(--ink-soft);}
   .tiny-note{font-size:11.5px;color:var(--ink-soft);text-align:center;margin-top:14px;line-height:1.5;}
+
+  .stop-row{display:flex;align-items:center;gap:12px;padding:12px 4px;border-bottom:1px solid var(--mint-100);}
+  .stop-row:last-child{border-bottom:none;}
+  .stop-dot{width:12px;height:12px;border-radius:50%;background:var(--mint-100);border:2px solid var(--forest-500);flex-shrink:0;}
+  .stop-row.passed .stop-dot{background:var(--forest-500);}
+  .stop-row.next .stop-dot{background:#f4a300;border-color:#f4a300;box-shadow:0 0 0 4px rgba(244,163,0,0.2);}
+  .stop-info{flex:1;min-width:0;}
+  .stop-name{font-size:13.5px;font-weight:600;color:var(--forest-950);}
+  .stop-time{font-size:11.5px;color:var(--ink-soft);}
+  .stop-eta{font-size:12.5px;font-weight:700;color:var(--forest-700);text-align:right;white-space:nowrap;}
+  .stop-row.passed .stop-eta{color:var(--ink-soft);font-weight:500;}
+  .stops-title{font-size:14px;font-weight:700;color:var(--forest-950);margin:0 0 4px;}
+  .stops-sub{font-size:11.5px;color:var(--ink-soft);margin:0 0 8px;}
+  .bus-divicon{background:none;border:none;}
+  .bus-divicon svg{filter:drop-shadow(0 2px 4px rgba(0,0,0,0.3));}
 </style>
 <!-- Firebase compat scripts: classic <script> tags load reliably everywhere (no ES-module/CORS issues). -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 </head>
 <body>
 <div id="app">
@@ -430,12 +447,8 @@
       </div>
 
       <div class="map-frame">
-        <div id="map-has-data" style="display:none;">
-          <div class="map-visual">
-            <div class="bus-marker pulse">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="3" y="6" width="18" height="10" rx="2.5" fill="#fff"/><circle cx="7.5" cy="17.5" r="1.8" fill="#fff"/><circle cx="16.5" cy="17.5" r="1.8" fill="#fff"/></svg>
-            </div>
-          </div>
+        <div id="live-map" style="width:100%;height:260px;border-radius:16px;overflow:hidden;background:var(--mint-100);"></div>
+        <div id="map-has-data" style="display:none;margin-top:14px;">
           <div class="map-meta">
             <div class="coord-row"><span>Driver</span><span id="loc-driver-name">—</span></div>
             <div class="coord-row"><span>Coordinates</span><span id="loc-coords">—</span></div>
@@ -449,6 +462,8 @@
           </div>
         </div>
       </div>
+
+      <div id="stops-timetable" style="margin-top:18px;"></div>
 
       <div class="action-row">
         <button class="btn btn-outline" onclick="refreshLocation()">Refresh now</button>
@@ -499,6 +514,26 @@ const ROUTES = [
   { id: "gummidipoondi", name: "Gummidipoondi to TJS" },
   { id: "pazhaverkadu",  name: "Pazhaverkadu to TJS" }
 ];
+
+// Each route's stops, in order, with scheduled time + map coordinates.
+// Coordinates marked "approx" are best-guess placeholders along the route corridor —
+// verify on the live map and send corrected pins to update them.
+const ROUTE_STOPS = {
+  ponneri: [
+    { name: "Rajakumari Bakery", time: "7:55 AM", lat: 13.333898, lng: 80.194224 },
+    { name: "Ganga Theatre",     time: "8:05 AM", lat: 13.322000, lng: 80.184000 }, // approx
+    { name: "Madhavaram",        time: "8:15 AM", lat: 13.312000, lng: 80.174000 }, // approx
+    { name: "Vellammal School",  time: "8:20 AM", lat: 13.299227, lng: 80.160273 },
+    { name: "Thachoor",          time: "8:30 AM", lat: 13.315000, lng: 80.148000 }, // approx
+    { name: "TJS",               time: "8:45 AM", lat: 13.340600, lng: 80.136235 }
+  ],
+  minjur: [],
+  redhills: [],
+  gummidipoondi: [],
+  pazhaverkadu: []
+};
+
+const AVG_SPEED_KMH = 22; // used only to estimate live ETA between GPS pings
 
 // Only these Driver IDs can log in, each tied to one specific route.
 // To add/remove a driver, just edit this list.
@@ -735,13 +770,151 @@ async function refreshRouteDot(routeId) {
   });
 }
 
+// ---------- live map + bus marker ----------
+let liveMap = null;
+let busMarker = null;
+let stopMarkers = [];
+let lastBusLatLng = null;
+let markerAnimFrame = null;
+
+const BUS_ICON_SVG = `
+<svg width="34" height="34" viewBox="0 0 34 34" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="17" cy="17" r="16" fill="#1b4332" stroke="#fff" stroke-width="2"/>
+  <g transform="translate(8,9)">
+    <rect x="0" y="0" width="18" height="11" rx="2.5" fill="#fff"/>
+    <rect x="2" y="2" width="5" height="4" rx="1" fill="#1b4332"/>
+    <rect x="8" y="2" width="5" height="4" rx="1" fill="#1b4332"/>
+    <circle cx="4.5" cy="12.5" r="1.9" fill="#fff"/>
+    <circle cx="13.5" cy="12.5" r="1.9" fill="#fff"/>
+  </g>
+</svg>`;
+
+function haversineMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function formatEta(meters) {
+  if (meters < 150) return "Arriving";
+  const minutes = Math.max(1, Math.round((meters / 1000 / AVG_SPEED_KMH) * 60));
+  return minutes < 60 ? `~${minutes} min` : `~${Math.round(minutes / 60)} hr`;
+}
+
+function initLiveMap(route) {
+  const mapEl = document.getElementById("live-map");
+  if (!mapEl || typeof L === "undefined") return;
+
+  if (liveMap) { liveMap.remove(); liveMap = null; busMarker = null; }
+  stopMarkers = [];
+  lastBusLatLng = null;
+
+  const stops = ROUTE_STOPS[route.id] || [];
+  const center = stops.length ? [stops[0].lat, stops[0].lng] : [13.34, 80.16];
+  liveMap = L.map(mapEl, { zoomControl: false, attributionControl: false }).setView(center, 12);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(liveMap);
+
+  if (stops.length) {
+    const routeLine = L.polyline(stops.map(s => [s.lat, s.lng]), { color: "#1b4332", weight: 3, opacity: 0.55, dashArray: "6 6" }).addTo(liveMap);
+    stops.forEach((s) => {
+      const m = L.circleMarker([s.lat, s.lng], { radius: 5, color: "#1b4332", fillColor: "#fff", fillOpacity: 1, weight: 2 }).addTo(liveMap);
+      m.bindTooltip(s.name, { direction: "top" });
+      stopMarkers.push(m);
+    });
+    liveMap.fitBounds(routeLine.getBounds(), { padding: [24, 24] });
+  }
+}
+
+function moveBusMarker(lat, lng) {
+  if (!liveMap) return;
+  const newLatLng = L.latLng(lat, lng);
+
+  if (!busMarker) {
+    const icon = L.divIcon({ className: "bus-divicon", html: BUS_ICON_SVG, iconSize: [34, 34], iconAnchor: [17, 17] });
+    busMarker = L.marker(newLatLng, { icon, zIndexOffset: 1000 }).addTo(liveMap);
+    lastBusLatLng = newLatLng;
+    liveMap.panTo(newLatLng);
+    return;
+  }
+
+  // Animate smoothly from the old position to the new one, like a moving vehicle rather than a jump.
+  const start = lastBusLatLng || newLatLng;
+  const startTime = performance.now();
+  const duration = 1200;
+  if (markerAnimFrame) cancelAnimationFrame(markerAnimFrame);
+
+  function step(now) {
+    const t = Math.min(1, (now - startTime) / duration);
+    const lat2 = start.lat + (newLatLng.lat - start.lat) * t;
+    const lng2 = start.lng + (newLatLng.lng - start.lng) * t;
+    busMarker.setLatLng([lat2, lng2]);
+    if (t < 1) {
+      markerAnimFrame = requestAnimationFrame(step);
+    } else {
+      lastBusLatLng = newLatLng;
+    }
+  }
+  markerAnimFrame = requestAnimationFrame(step);
+  liveMap.panTo(newLatLng, { animate: true });
+}
+
+function renderStopsTimetable(route, busData) {
+  const container = document.getElementById("stops-timetable");
+  const stops = ROUTE_STOPS[route.id] || [];
+  if (!stops.length) {
+    container.innerHTML = `<p class="stops-sub">Stop timings for this route are coming soon.</p>`;
+    return;
+  }
+
+  const hasBus = busData && busData.lat && busData.lng;
+  let nextAssigned = false;
+
+  const rows = stops.map((stop) => {
+    let etaHtml = `<span class="stop-eta">${stop.time}</span>`;
+    let rowClass = "";
+    if (hasBus) {
+      const dist = haversineMeters(busData.lat, busData.lng, stop.lat, stop.lng);
+      if (dist < 200) {
+        rowClass = "passed";
+        etaHtml = `<span class="stop-eta">${stop.time} · Reached</span>`;
+      } else if (!nextAssigned) {
+        rowClass = "next";
+        nextAssigned = true;
+        etaHtml = `<span class="stop-eta">${formatEta(dist)}</span>`;
+      } else {
+        etaHtml = `<span class="stop-eta">${stop.time}</span>`;
+      }
+    }
+    return `
+      <div class="stop-row ${rowClass}">
+        <div class="stop-dot"></div>
+        <div class="stop-info">
+          <div class="stop-name">${stop.name}</div>
+          <div class="stop-time">Scheduled ${stop.time}</div>
+        </div>
+        ${etaHtml}
+      </div>`;
+  }).join("");
+
+  container.innerHTML = `
+    <p class="stops-title">Stops &amp; timings</p>
+    <p class="stops-sub">${hasBus ? "Live ETA based on the bus's current GPS position." : "Scheduled times shown — live ETA appears once the driver starts sharing."}</p>
+    ${rows}`;
+}
+
 function selectRoute(route) {
   state.selectedRoute = route;
   document.getElementById("loc-route-name").textContent = route.name;
   goToScreen("screen-location");
+  initLiveMap(route);
+  renderStopsTimetable(route, null);
   refreshLocation();
   if (refreshTimer) clearInterval(refreshTimer);
-  // Firebase onValue listener updates the screen instantly when the driver moves.
+  // db.doc listener updates the screen instantly when the driver moves.
   if (firebaseReady) {
     db.ref(`routes/${route.id}`).on("value", snapshot => {
       renderLocation(snapshot.val());
@@ -767,6 +940,8 @@ function renderLocation(data) {
     document.getElementById("loc-updated").textContent = new Date(data.updatedAt).toLocaleTimeString();
     gmapsLink.style.display = "block";
     gmapsLink.href = `https://www.google.com/maps?q=${data.lat},${data.lng}`;
+    moveBusMarker(Number(data.lat), Number(data.lng));
+    if (state.selectedRoute) renderStopsTimetable(state.selectedRoute, { lat: Number(data.lat), lng: Number(data.lng) });
     return;
   }
   pill.classList.add("offline");
@@ -774,6 +949,7 @@ function renderLocation(data) {
   hasDataBlock.style.display = "none";
   noDataBlock.style.display = "block";
   gmapsLink.style.display = "none";
+  if (state.selectedRoute) renderStopsTimetable(state.selectedRoute, null);
 }
 
 function refreshLocation() {
@@ -786,6 +962,7 @@ function refreshLocation() {
     renderLocation(snapshot.val());
   });
 }
+
 
 // ---------- driver flow ----------
 function driverLogin() {
